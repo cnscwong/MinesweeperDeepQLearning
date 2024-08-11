@@ -45,7 +45,7 @@ memoryBuffer = deque([], maxlen=MEMORY_LENGTH)
 
 # Agent parameters
 LEARNING_RATE = 0.001
-DISCOUNT_RATE = 0.9
+DISCOUNT_RATE = 0
 SYNC_RATE = 10
 
 def sample():
@@ -173,7 +173,7 @@ class MinesweeperEnvironment():
         row, col = divmod(action, self.length)
 
         if self.board[row, col] != -1:
-            reward = 0.0
+            reward = -0.3
         elif self.mines[row, col]: # if mine found
             self.board[row, col] = -2
             if self.render:
@@ -292,7 +292,7 @@ class MinesweeperDQLAgent():
         self.optimizer = torch.optim.Adam(policy_dqn.parameters(), lr=LEARNING_RATE)
 
         rewards_per_episode = np.zeros(episodes)
-
+        total_steps = 0
         steps = 0
         score_history = []
 
@@ -312,17 +312,21 @@ class MinesweeperDQLAgent():
 
                 new_state, reward, gameDone, stepsPerGame, score = env.step(action)
                 row, col = divmod(action, LENGTH)
-                print(f"Episode: {i}, Row: {row}, Column: {col}, Reward: {reward}, Score: {score}, Done: {gameDone}")
+                # print(f"Episode: {i}, Row: {row}, Column: {col}, Reward: {reward}, Score: {score}, Done: {gameDone}")
                 # Testing to see if neural network learns better when the initial guess is not saved ????
                 # And when picking a revealed cell is not saved
-                if stepsPerGame != 1 and reward != 0:
+                if stepsPerGame != 1:
                     memoryBuffer.append((state, action, new_state, reward, gameDone))
 
                 state = new_state
                 steps += 1
+                total_steps += 1
 
                 if reward == 1:
                     rewards_per_episode[i] += 1
+
+            if (i + 1) % 100 == 0:
+                print(f"Episode: {i}, Total steps: {total_steps}, Total rewards: {np.sum(rewards_per_episode)}")
 
             score_history.append(score)
 
@@ -338,17 +342,12 @@ class MinesweeperDQLAgent():
                     target_dqn.load_state_dict(policy_dqn.state_dict())
                     steps = 0
 
-        torch.save(policy_dqn.state_dict(), "minesweeper_cnn.pt")
+        torch.save(policy_dqn.state_dict(), "minesweeper_dql_cnn.pt")
 
-        # Create new graph
+                # Create new graph
         plt.figure(1)
-
-        # Plot average rewards (Y-axis) vs episodes (X-axis)
-        sum_score = np.zeros(episodes)
-        for x in range(episodes):
-            sum_score[x] = np.sum(sum_score[max(0, x-100):(x+1)])
         plt.subplot(121) # plot on a 1 row x 2 col grid, at cell 1
-        plt.plot(sum_score)
+        plt.plot(score_history)
 
         # Save plots
         plt.savefig('minesweeper_dql_cnn.png')
@@ -400,7 +399,7 @@ class MinesweeperDQLAgent():
 
         # Load learned policy
         policy_dqn = DQN(input_shape=3, out_actions=num_actions)
-        policy_dqn.load_state_dict(torch.load("minesweeper_dql_cnn.pt"))
+        policy_dqn.load_state_dict(torch.load("minesweeper_cnn.pt"))
         policy_dqn.eval()    # switch model to evaluation mode
 
         for i in range(episodes):
@@ -416,10 +415,12 @@ class MinesweeperDQLAgent():
 
                 # Execute action
                 state, reward, gameDone, stepsPerGame, score = env.step(action)
+                row, col = divmod(action, LENGTH)
+                print(f"Episode: {i}, Row: {row}, Column: {col}, Reward: {reward}, Score: {score}, Done: {gameDone}")
                 time.sleep(1)
 
 
 if __name__ == "__main__":
     minesweeper = MinesweeperDQLAgent()
-    minesweeper.train(1000)
+    # minesweeper.train(1000)
     minesweeper.test(10)
