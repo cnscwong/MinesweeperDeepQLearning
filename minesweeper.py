@@ -226,24 +226,24 @@ class DQN(nn.Module):
         super().__init__()
 
         self.conv_block1 = nn.Sequential(
-            nn.Conv2d(in_channels=input_shape, out_channels=10, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=input_shape, out_channels=32, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=10, out_channels=10, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2)
         )
 
         self.conv_block2 = nn.Sequential(
-            nn.Conv2d(in_channels=10, out_channels=10, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=10, out_channels=10, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2)
         )
 
         self.layer_stack = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(in_features=10*2*2, out_features=out_actions)
+            nn.Linear(in_features=256*2*2, out_features=out_actions)
         )
 
     def forward(self, x):
@@ -407,7 +407,6 @@ class MinesweeperDQLAgent():
             gameDone = False
             stepsPerGame = 0 # True when agent takes more than 200 actions
 
-            # Agent navigates map until it falls into a hole (terminated), reaches goal (terminated), or has taken 200 actions (truncated).
             while(not gameDone and not stepsPerGame == 200):
                 # Select best action
                 with torch.no_grad():
@@ -422,5 +421,5 @@ class MinesweeperDQLAgent():
 
 if __name__ == "__main__":
     minesweeper = MinesweeperDQLAgent()
-    # minesweeper.train(1000)
+    minesweeper.train(1000)
     minesweeper.test(10)
