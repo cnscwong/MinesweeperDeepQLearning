@@ -8,6 +8,10 @@ import pygame
 import time
 import matplotlib.pyplot as plt
 
+# Path to file for training and test networks
+TRAINING_NETWORK_PATH = "minesweeper_dql_cnn.pt"
+TEST_NETWORK_PATH = "minesweeper_dql_cnn.pt"
+
 # Minesweeper board parameters
 LENGTH = 10
 TOTAL_MINES = 20
@@ -33,9 +37,10 @@ RED = 0
 GREEN = 1
 BLUE = 2
 UNREVEALED = -1
+MINE = -2
 RGBVALUES = [[191, 191, 191], [0, 0, 254], [0, 127, 0], [254, 0, 0], [0, 0, 127], [127, 0, 0], [46, 129, 133], [0, 0, 0], [127, 127, 127]]
 UNREVEALEDRGB = [255, 255, 255]
-EXPLODEDRGB = []
+EXPLODEDRGB = [133, 200, 46]
 
 # Memory to store previous states and actions
 MEMORY_LENGTH = 1000
@@ -173,20 +178,28 @@ class MinesweeperEnvironment():
         row, col = divmod(action, self.length)
 
         if self.board[row, col] != -1:
-            reward = -0.3
+            reward = -2.0
+        elif self.actionIsGuess(row, col):
+            if self.mines[row, col]:
+                self.board[row, col] = -2
+                if self.render:
+                    self.scrn.blit(minePic, (col*CELL_WIDTH, row*CELL_WIDTH))
+                    pygame.display.flip()
+                self.game_done = True
+                reward = -1.0
+            else:
+                reward = -1.0
+                self.reveal(row, col)
+                if self.revealed_tiles == self.total_mines:
+                    reward = 1.0
+                    self.game_done = True
         elif self.mines[row, col]: # if mine found
             self.board[row, col] = -2
             if self.render:
                 self.scrn.blit(minePic, (col*CELL_WIDTH, row*CELL_WIDTH))
                 pygame.display.flip()
             self.game_done = True
-            reward = -1.0
-        elif self.actionIsGuess(row, col):
             reward = -0.3
-            self.reveal(row, col)
-            if self.revealed_tiles == self.total_mines:
-                reward = 1.0
-                self.game_done = True
         else:
             reward = 1.0
             self.reveal(row, col)
@@ -268,6 +281,10 @@ class MinesweeperDQLAgent():
                 temp[0][RED][row][col] = UNREVEALEDRGB[RED]/255
                 temp[0][BLUE][row][col] = UNREVEALEDRGB[BLUE]/255
                 temp[0][GREEN][row][col] = UNREVEALEDRGB[GREEN]/255
+            elif board[row, col] == -2:
+                temp[0][RED][row][col] = EXPLODEDRGB[RED]/255
+                temp[0][BLUE][row][col] = EXPLODEDRGB[BLUE]/255
+                temp[0][GREEN][row][col] = EXPLODEDRGB[GREEN]/255
             else:
                 temp[0][RED][row][col] = RGBVALUES[board[row, col]][RED]/255
                 temp[0][BLUE][row][col] = RGBVALUES[board[row, col]][BLUE]/255
@@ -292,6 +309,7 @@ class MinesweeperDQLAgent():
         self.optimizer = torch.optim.Adam(policy_dqn.parameters(), lr=LEARNING_RATE)
 
         rewards_per_episode = np.zeros(episodes)
+        epsilon_history = []
         total_steps = 0
         steps = 0
         score_history = []
@@ -336,6 +354,7 @@ class MinesweeperDQLAgent():
 
                 # Decay epsilon
                 epsilon = max(epsilon - 1/episodes, 0)
+                epsilon_history.append(epsilon)
 
                 # Copy policy network to target network after a certain number of steps
                 if steps > SYNC_RATE:
@@ -344,10 +363,15 @@ class MinesweeperDQLAgent():
 
         torch.save(policy_dqn.state_dict(), "minesweeper_dql_cnn.pt")
 
-                # Create new graph
+        # Create new graph
         plt.figure(1)
         plt.subplot(121) # plot on a 1 row x 2 col grid, at cell 1
         plt.plot(score_history)
+        plt.title("Scores")
+
+        plt.subplot(122)
+        plt.plot(epsilon_history)
+        plt.title("Epsilon decay")
 
         # Save plots
         plt.savefig('minesweeper_dql_cnn.png')
@@ -399,7 +423,7 @@ class MinesweeperDQLAgent():
 
         # Load learned policy
         policy_dqn = DQN(input_shape=3, out_actions=num_actions)
-        policy_dqn.load_state_dict(torch.load("minesweeper_cnn.pt"))
+        policy_dqn.load_state_dict(torch.load(TEST_NETWORK_PATH))
         policy_dqn.eval()    # switch model to evaluation mode
 
         for i in range(episodes):
@@ -421,5 +445,5 @@ class MinesweeperDQLAgent():
 
 if __name__ == "__main__":
     minesweeper = MinesweeperDQLAgent()
-    minesweeper.train(1000)
+    minesweeper.train(50)
     minesweeper.test(10)
