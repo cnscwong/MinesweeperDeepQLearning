@@ -14,7 +14,7 @@ TEST_NETWORK_PATH = "minesweeper_dql_cnn.pt"
 
 # Minesweeper board parameters
 LENGTH = 10
-TOTAL_MINES = 20
+TOTAL_MINES = 14
 
 # Initialized for rendering minesweeper so user can see neural network playing the game
 CELL_WIDTH = 32
@@ -32,29 +32,27 @@ grid7 = pygame.image.load("./assets/grid7.png").convert()
 grid8 = pygame.image.load("./assets/grid8.png").convert()
 minePic = pygame.image.load("./assets/mineClicked.png").convert()
 
-# Constants for converting minesweeper state to picture for CNN
-RED = 0
-GREEN = 1
-BLUE = 2
-UNREVEALED = -1
-MINE = -2
-RGBVALUES = [[191, 191, 191], [0, 0, 254], [0, 127, 0], [254, 0, 0], [0, 0, 127], [127, 0, 0], [46, 129, 133], [0, 0, 0], [127, 127, 127]]
-UNREVEALEDRGB = [255, 255, 255]
-EXPLODEDRGB = [133, 200, 46]
+# indexes for tensor input
+UNREVEALED = 9
+MINES = 10
 
 # Memory to store previous states and actions
 MEMORY_LENGTH = 1000
 SAMPLE_SIZE = 40
 
 memoryBuffer = deque([], maxlen=MEMORY_LENGTH)
+priorityMemoryBuffer = deque([], maxlen=MEMORY_LENGTH)
 
 # Agent parameters
 LEARNING_RATE = 0.001
 DISCOUNT_RATE = 0
-SYNC_RATE = 10
+SYNC_RATE = 200
 
 def sample():
     return random.sample(memoryBuffer, SAMPLE_SIZE)
+
+def prioritySample():
+    return random.sample(priorityMemoryBuffer, SAMPLE_SIZE)
 
 # Environment to manage minesweeper games
 class MinesweeperEnvironment():
@@ -70,6 +68,8 @@ class MinesweeperEnvironment():
     def reset(self):
         self.board = np.ones((self.length, self.length), dtype=int) # mine = -2, revealed/unrevealed -> unrevealed = -1, revealed = nums from 0-8
         self.board *= -1
+        self.state = torch.zeros(1, 11, LENGTH, LENGTH)
+        self.state[0][UNREVEALED] = torch.ones(LENGTH, LENGTH)
         self.unrevealed = np.ones((self.length, self.length), dtype=int)
         self.mines = np.zeros((self.length, self.length), dtype=int)
         self.generate_mines()
@@ -81,7 +81,7 @@ class MinesweeperEnvironment():
                 for col in range(LENGTH):
                     self.scrn.blit(unrevealedPic, (col*CELL_WIDTH, row*CELL_WIDTH))
             pygame.display.flip()
-        return self.board
+        return self.state
         
     def generate_mines(self):
         mine_locations = np.random.choice(self.total_cells, self.total_mines, replace=False)
@@ -117,6 +117,8 @@ class MinesweeperEnvironment():
     
     def reveal(self, row, col):
         self.board[row, col] = self.count_mines_around_cell(row, col)
+        self.state[0][UNREVEALED][row][col] = 0
+        self.state[0][self.board[row, col]][row][col] = 1
         self.unrevealed[row, col] = 0
         self.revealed_tiles += 1
         self.renderCell(row, col, self.board[row, col])
@@ -177,36 +179,37 @@ class MinesweeperEnvironment():
         self.step_count += 1
         row, col = divmod(action, self.length)
 
-        if self.board[row, col] != -1:
-            reward = -2.0
-        elif self.actionIsGuess(row, col):
+        if self.actionIsGuess(row, col):
+            reward = -0.3
             if self.mines[row, col]:
                 self.board[row, col] = -2
+                self.state[0][UNREVEALED][row][col] = 0
+                self.state[0][MINES][row][col] = 1
                 if self.render:
                     self.scrn.blit(minePic, (col*CELL_WIDTH, row*CELL_WIDTH))
                     pygame.display.flip()
                 self.game_done = True
-                reward = -1.0
             else:
-                reward = -1.0
                 self.reveal(row, col)
                 if self.revealed_tiles == self.total_mines:
                     reward = 1.0
                     self.game_done = True
         elif self.mines[row, col]: # if mine found
             self.board[row, col] = -2
+            self.state[0][UNREVEALED][row][col] = 0
+            self.state[0][MINES][row][col] = 1
             if self.render:
                 self.scrn.blit(minePic, (col*CELL_WIDTH, row*CELL_WIDTH))
                 pygame.display.flip()
             self.game_done = True
-            reward = -0.3
+            reward = -1.0
         else:
             reward = 1.0
             self.reveal(row, col)
             if self.revealed_tiles == self.total_mines:
                 self.game_done = True
         
-        return self.board, reward, self.game_done, self.step_count, self.revealed_tiles
+        return self.state, reward, self.game_done, self.step_count, self.revealed_tiles
     
     # Checks if any of the surrounding cells are revealed to penalize guesses
     def actionIsGuess(self, row, col):
@@ -239,29 +242,36 @@ class DQN(nn.Module):
         super().__init__()
 
         self.conv_block1 = nn.Sequential(
-            nn.Conv2d(in_channels=input_shape, out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=input_shape, out_channels=64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2)
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU()
         )
 
         self.conv_block2 = nn.Sequential(
-            nn.Conv2d(in_channels=64, out_channels=128, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU()
+        )
+
+        self.conv_block3 = nn.Sequential(
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2)
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU()
         )
 
         self.layer_stack = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(in_features=256*2*2, out_features=out_actions)
+            nn.Conv2d(in_channels=64, out_channels=1, kernel_size=1),
+            # nn.Sigmoid(),
+            nn.Flatten()
         )
 
     def forward(self, x):
         x = self.conv_block1(x)
         x = self.conv_block2(x)
+        x = self.conv_block3(x)
         x = self.layer_stack(x)
         return x
 
@@ -272,27 +282,7 @@ class MinesweeperDQLAgent():
         # Loss function(Mean Squared Error)
         self.loss_fn = nn.MSELoss()
 
-    # Converts board state to a tensor for CNN to process
-    def state_to_tensor(self, board):
-        temp = torch.zeros(1, 3, LENGTH, LENGTH)
-        for i in range(LENGTH*LENGTH):
-            row, col = divmod(i, LENGTH)
-            if board[row, col] == UNREVEALED:
-                temp[0][RED][row][col] = UNREVEALEDRGB[RED]/255
-                temp[0][BLUE][row][col] = UNREVEALEDRGB[BLUE]/255
-                temp[0][GREEN][row][col] = UNREVEALEDRGB[GREEN]/255
-            elif board[row, col] == -2:
-                temp[0][RED][row][col] = EXPLODEDRGB[RED]/255
-                temp[0][BLUE][row][col] = EXPLODEDRGB[BLUE]/255
-                temp[0][GREEN][row][col] = EXPLODEDRGB[GREEN]/255
-            else:
-                temp[0][RED][row][col] = RGBVALUES[board[row, col]][RED]/255
-                temp[0][BLUE][row][col] = RGBVALUES[board[row, col]][BLUE]/255
-                temp[0][GREEN][row][col] = RGBVALUES[board[row, col]][GREEN]/255
-
-        return temp
-
-    def train(self, episodes, render=True):
+    def train(self, episodes, render=True, continueTraining=0):
         pygame.display.set_caption('Training...')
         env = MinesweeperEnvironment(render)
         num_actions = LENGTH*LENGTH
@@ -300,9 +290,11 @@ class MinesweeperDQLAgent():
         # 100% probability to do a random action
         epsilon = 1
 
-        policy_dqn = DQN(input_shape=3, out_actions=num_actions)
-        target_dqn = DQN(input_shape=3, out_actions=num_actions)
+        policy_dqn = DQN(input_shape=11, out_actions=num_actions)
+        target_dqn = DQN(input_shape=11, out_actions=num_actions)
 
+        if continueTraining:
+            policy_dqn.load_state_dict(torch.load("minesweeper_dql_cnn.pt"))
         # Copy policy network to target network
         target_dqn.load_state_dict(policy_dqn.state_dict())
 
@@ -314,10 +306,19 @@ class MinesweeperDQLAgent():
         steps = 0
         score_history = []
 
-        for i in range(episodes):
+        for i in range(continueTraining, episodes):
             state = env.reset()
             gameDone = False
             stepsPerGame = 0 # True when agent takes more than 200 actions
+
+            new_state, reward, gameDone, stepsPerGame, score = env.step(45)
+
+            state = new_state
+            steps += 1
+            total_steps += 1
+
+            if reward == 1:
+                rewards_per_episode[i] += 1
 
             while(not gameDone and not stepsPerGame == 200):
                 # select random action based on epsilon value
@@ -326,15 +327,22 @@ class MinesweeperDQLAgent():
                 else:
                     # select best action
                     with torch.no_grad():
-                        action = policy_dqn(self.state_to_tensor(env.board)).argmax().item()
+                        temp = policy_dqn(state)
+                        for a in range(LENGTH*LENGTH):
+                            row, col = divmod(a, LENGTH)
+                            if not env.unrevealed[row, col]:
+                                temp[0][a] = -10
+                        action = temp.argmax().item()
 
                 new_state, reward, gameDone, stepsPerGame, score = env.step(action)
                 row, col = divmod(action, LENGTH)
                 # print(f"Episode: {i}, Row: {row}, Column: {col}, Reward: {reward}, Score: {score}, Done: {gameDone}")
                 # Testing to see if neural network learns better when the initial guess is not saved ????
                 # And when picking a revealed cell is not saved
-                if stepsPerGame != 1:
-                    memoryBuffer.append((state, action, new_state, reward, gameDone))
+
+                memoryBuffer.append((state, action, new_state, reward, gameDone))
+                if reward == 1 or reward == -1:
+                    priorityMemoryBuffer.append((state, action, new_state, reward, gameDone))
 
                 state = new_state
                 steps += 1
@@ -344,11 +352,20 @@ class MinesweeperDQLAgent():
                     rewards_per_episode[i] += 1
 
             if (i + 1) % 100 == 0:
-                print(f"Episode: {i}, Total steps: {total_steps}, Total rewards: {np.sum(rewards_per_episode)}")
+                print(f"Episode: {i + 1}, Total steps: {total_steps}, Total rewards: {np.sum(rewards_per_episode)}")
+                # if(i + 1) % 1000 == 0:
+                #     torch.save(policy_dqn.state_dict(), "minesweeper_dql_cnn.pt")
+                #     !cp -r './minesweeper_dql_cnn.pt' '/content/gdrive/My Drive/MinesweeperResults/minesweeper_dql_cnn.pt'
+                #     with open(f'/content/gdrive/My Drive/MinesweeperResults/LatestEpisode.txt', 'w') as f:
+                #         f.write(f'{i + 1}')
 
             score_history.append(score)
 
-            if len(memoryBuffer) > SAMPLE_SIZE and np.sum(rewards_per_episode) > 0:
+            if len(priorityMemoryBuffer) > MEMORY_LENGTH/2:
+                mini_batch = prioritySample()
+                self.optimize(mini_batch, policy_dqn, target_dqn)
+
+            if len(memoryBuffer) > MEMORY_LENGTH/2:
                 mini_batch = sample()
                 self.optimize(mini_batch, policy_dqn, target_dqn)
 
@@ -392,15 +409,15 @@ class MinesweeperDQLAgent():
                 # Calculate target q value
                 with torch.no_grad():
                     target = torch.FloatTensor(
-                        reward + DISCOUNT_RATE * target_dqn(self.state_to_tensor(new_state)).max()
+                        reward + DISCOUNT_RATE * target_dqn(new_state).max()
                     )
 
             # Get the current set of Q values
-            current_q = policy_dqn(self.state_to_tensor(state))
+            current_q = policy_dqn(state)
             current_q_list.append(current_q)
 
             # Get the target set of Q values
-            target_q = target_dqn(self.state_to_tensor(state))
+            target_q = target_dqn(state)
             
             # Adjust the specific action to the target that was just calculated. 
             # Target_q[batch][action], hardcode batch to 0 because there is only 1 batch.
@@ -422,7 +439,7 @@ class MinesweeperDQLAgent():
         num_actions = LENGTH*LENGTH
 
         # Load learned policy
-        policy_dqn = DQN(input_shape=3, out_actions=num_actions)
+        policy_dqn = DQN(input_shape=11, out_actions=num_actions)
         policy_dqn.load_state_dict(torch.load(TEST_NETWORK_PATH))
         policy_dqn.eval()    # switch model to evaluation mode
 
@@ -431,10 +448,20 @@ class MinesweeperDQLAgent():
             gameDone = False
             stepsPerGame = 0 # True when agent takes more than 200 actions
 
+            state, reward, gameDone, stepsPerGame, score = env.step(45)
+            row, col = divmod(45, LENGTH)
+            print(f"Episode: {i}, Row: {row}, Column: {col}, Reward: {reward}, Score: {score}, Done: {gameDone}")
+            time.sleep(1)
+
             while(not gameDone and not stepsPerGame == 200):
                 # Select best action
                 with torch.no_grad():
-                    action = policy_dqn(self.state_to_tensor(state)).argmax().item()
+                    temp = policy_dqn(state)
+                    for a in range(LENGTH*LENGTH):
+                        row, col = divmod(a, LENGTH)
+                        if not env.unrevealed[row, col]:
+                            temp[0][a] = -10
+                    action = temp.argmax().item()
 
                 # Execute action
                 state, reward, gameDone, stepsPerGame, score = env.step(action)
@@ -445,5 +472,5 @@ class MinesweeperDQLAgent():
 
 if __name__ == "__main__":
     minesweeper = MinesweeperDQLAgent()
-    minesweeper.train(50)
+    minesweeper.train(1000)
     minesweeper.test(10)
