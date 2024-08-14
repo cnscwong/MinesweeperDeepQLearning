@@ -191,7 +191,7 @@ class MinesweeperEnvironment():
                 self.game_done = True
             else:
                 self.reveal(row, col)
-                if self.revealed_tiles == self.total_mines:
+                if self.revealed_tiles == (self.total_cells - self.total_mines):
                     reward = 1.0
                     self.game_done = True
         elif self.mines[row, col]: # if mine found
@@ -206,7 +206,7 @@ class MinesweeperEnvironment():
         else:
             reward = 1.0
             self.reveal(row, col)
-            if self.revealed_tiles == self.total_mines:
+            if self.revealed_tiles == (self.total_cells - self.total_mines):
                 self.game_done = True
         
         return self.state, reward, self.game_done, self.step_count, self.revealed_tiles
@@ -255,12 +255,12 @@ class DQN(nn.Module):
             nn.ReLU()
         )
 
-        self.conv_block3 = nn.Sequential(
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
-            nn.ReLU()
-        )
+        # self.conv_block3 = nn.Sequential(
+        #     nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
+        #     nn.ReLU(),
+        #     nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
+        #     nn.ReLU()
+        # )
 
         self.layer_stack = nn.Sequential(
             nn.Conv2d(in_channels=64, out_channels=1, kernel_size=1),
@@ -271,7 +271,7 @@ class DQN(nn.Module):
     def forward(self, x):
         x = self.conv_block1(x)
         x = self.conv_block2(x)
-        x = self.conv_block3(x)
+        # x = self.conv_block3(x)
         x = self.layer_stack(x)
         return x
 
@@ -472,5 +472,5 @@ class MinesweeperDQLAgent():
 
 if __name__ == "__main__":
     minesweeper = MinesweeperDQLAgent()
-    minesweeper.train(1000)
+    # minesweeper.train(1000)
     minesweeper.test(10)

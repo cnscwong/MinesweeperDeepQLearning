@@ -39,13 +39,17 @@ if __name__ == "__main__":
 
     Initially had no punishment when selecting already revealed cells but the model started only picking cells that were already revealed as majority of other random moves were either mines or guesses. In other words, the model would rather get no reward to avoid picking a mine or guessing
 
-* Network size/dimension changes
+* Neural network architechture
+
+    Observed that model is picking the corners off of no information, possibly due to padding?
 
 * Epsilon decay
 
 * Learning rate
 
 * Test to see if not adding first move of any game to memory as first move will always be a guess/random(Don't want the model to learn from move that was made off of no information)
+
+* Test to see if having the same starting move will help with learning
 
 * Board size and number of mines
 
