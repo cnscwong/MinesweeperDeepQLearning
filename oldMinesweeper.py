@@ -48,11 +48,7 @@ LEARNING_RATE = 0.001
 DISCOUNT_RATE = 0
 SYNC_RATE = 200
 
-def sample():
-    return random.sample(memoryBuffer, SAMPLE_SIZE)
-
-def prioritySample():
-    return random.sample(priorityMemoryBuffer, SAMPLE_SIZE)
+torch.autograd.set_detect_anomaly(True)
 
 # Environment to manage minesweeper games
 class MinesweeperEnvironment():
@@ -180,7 +176,7 @@ class MinesweeperEnvironment():
         row, col = divmod(action, self.length)
 
         if self.actionIsGuess(row, col):
-            reward = -0.3
+            reward = 0.0
             if self.mines[row, col]:
                 self.board[row, col] = -2
                 self.state[0][UNREVEALED][row][col] = 0
@@ -202,7 +198,7 @@ class MinesweeperEnvironment():
                 self.scrn.blit(minePic, (col*CELL_WIDTH, row*CELL_WIDTH))
                 pygame.display.flip()
             self.game_done = True
-            reward = -1.0
+            reward = 0.0
         else:
             reward = 1.0
             self.reveal(row, col)
@@ -273,6 +269,7 @@ class DQN(nn.Module):
         x = self.conv_block2(x)
         # x = self.conv_block3(x)
         x = self.layer_stack(x)
+        # print(x)
         return x
 
 # Minesweeper Deep Q-Learning
