@@ -32,57 +32,61 @@ if RENDER:
     grid7 = pygame.image.load("./assets/grid7.png").convert()
     grid8 = pygame.image.load("./assets/grid8.png").convert()
     minePic = pygame.image.load("./assets/mineClicked.png").convert()
-    flagPic = pygame.image.load("./assets/flag.jpg").convert()
+    # flagPic = pygame.image.load("./assets/flag.jpg").convert()
 
-UNREVEALED = 9
-FLAGS = 10
-PADDING = 11
+# FLAGS = 10
+PADDING = 9
+UNREVEALED = 10
 
 # Memory to store previous states and actions
-MEMORY_LENGTH = 1000
-SAMPLE_SIZE = 40
+MEMORY_LENGTH = 10000
+SAMPLE_SIZE = 1000
 
 # Agent parameters
 LEARNING_RATE = 0.001
 DISCOUNT_RATE = 0
-SYNC_RATE = 500
+SYNC_RATE = 80
+EPSILON_DECAY = 0.99
+
+TEST_NETWORK_NAME = "minesweeper_dql_cnn_197552.pt"
 
 class DQN(nn.Module):
     def __init__(self, input_shape, out_actions):
         super().__init__()
 
         self.conv_block1 = nn.Sequential(
-            nn.Conv2d(in_channels=input_shape, out_channels=64, kernel_size=(3,3), stride=1, padding=0),
-            nn.Sigmoid(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3,3), stride=1, padding=0),
-            nn.Sigmoid()
+            nn.Conv2d(in_channels=input_shape, out_channels=64, kernel_size=(3, 3), stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=1, padding=1),
+            nn.ReLU()
         )
 
-        # self.conv_block2 = nn.Sequential(
-        #     nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0),
-        #     nn.Sigmoid(),
-        #     nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0),
-        #     nn.Sigmoid()
-        # )
+        self.conv_block2 = nn.Sequential(
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=1, padding=1),
+            nn.ReLU()
+        )
 
-        # self.conv_block3 = nn.Sequential(
-        #     nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0),
-        #     nn.ReLU(),
-        #     nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0),
-        #     nn.ReLU()
-        # )
+        self.conv_block3 = nn.Sequential(
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=1, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=1, padding=1),
+            nn.ReLU()
+        )
 
         self.layer_stack = nn.Sequential(
-            nn.Conv2d(in_channels=64, out_channels=1, kernel_size=(1, 1)),
-            nn.Flatten()
+            nn.Conv2d(in_channels=64, out_channels=1, kernel_size=(1, 1), padding=0),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(in_features=1*25, out_features=out_actions)
         )
 
     def forward(self, x):
         x = self.conv_block1(x)
-        # x = self.conv_block2(x)
-        # x = self.conv_block3(x)
+        x = self.conv_block2(x)
+        x = self.conv_block3(x)
         x = self.layer_stack(x)
-        x = torch.sigmoid(x)
         return x.clone()
     
 class MemoryBuffer():
@@ -193,29 +197,30 @@ class MinesweeperEnvironment():
             self.game_done = True
             reward = -1.0
         else:
-            reward = 1.0
+            reward = 0.2
             self.reveal(row, col)
             if self.revealed_tiles == (self.total_cells - self.total_mines):
+                reward = 1.0
                 self.game_done = True
         
         return reward, self.game_done, self.revealed_tiles
     
-    def flag(self, action): # Reveal 
-        row, col = divmod(action, WIDTH)
+    # def flag(self, action): # Reveal 
+    #     row, col = divmod(action, WIDTH)
 
-        self.board[row, col] = FLAGS
+    #     self.board[row, col] = FLAGS
 
-        if RENDER:
-            self.scrn.blit(flagPic, (col*CELL_WIDTH, row*CELL_WIDTH))
-            pygame.display.flip()
+    #     if RENDER:
+    #         self.scrn.blit(flagPic, (col*CELL_WIDTH, row*CELL_WIDTH))
+    #         pygame.display.flip()
 
-        if self.mines[row, col]: # if mine found
-            reward = -1.0
-        else:
-            reward = 1.0
-            self.game_done = True
+    #     if self.mines[row, col]: # if mine found
+    #         reward = -1.0
+    #     else:
+    #         reward = 1.0
+    #         self.game_done = True
         
-        return reward, self.game_done, self.revealed_tiles
+    #     return reward, self.game_done, self.revealed_tiles
     
     def generate_mines(self): # Checked
         mine_locations = np.random.choice(self.total_cells, self.total_mines, replace=False)
@@ -228,7 +233,7 @@ class MinesweeperEnvironment():
             return 
         
         match self.board[row, col]:
-            case 9:
+            case 10:
                 self.scrn.blit(unrevealedPic, (col*CELL_WIDTH, row*CELL_WIDTH))
             case 0:
                 self.scrn.blit(grid0, (col*CELL_WIDTH, row*CELL_WIDTH))
@@ -252,7 +257,7 @@ class MinesweeperEnvironment():
         pygame.display.flip()
 
     def applyPadding(self, row, col): # Checked
-        tensor = torch.zeros(1,12,5,5)
+        tensor = torch.zeros(1,10,5,5)
         
         for i in range(5):
             if col < 2:
@@ -277,36 +282,67 @@ class MinesweeperEnvironment():
 
     def state_to_tensor(self, position): # Checked
         row, col = divmod(position, WIDTH)
+
         tensor = self.applyPadding(row, col)
 
         for r in range(-2, 3):
             for c in range(-2, 3):
                 if tensor[0][PADDING][r + 2][c + 2] != 1:
-                    tensor[0][self.board[row + r][col + c]][r + 2][c + 2] = 1
+                    if self.board[row + r][col + c] != UNREVEALED:
+                        tensor[0][self.board[row + r][col + c]][r + 2][c + 2] = 1
 
         return tensor
     
-    def isAdjacent(self, position):
+    def isValid(self, position):
         row, col = divmod(position, WIDTH)
 
         if self.board[row, col] != UNREVEALED:
             return False
         
-        bottomRow = (row + 1 == HEIGHT)
-        topRow = (row == 0)
-        rightmostCol = (col + 1 == WIDTH)
-        leftmostCol = (col == 0)
-
-        if not bottomRow and self.board[row + 1, col] != UNREVEALED:
-            return True
-        if not topRow and self.board[row - 1, col] != UNREVEALED:
-            return True
-        if not rightmostCol and self.board[row, col + 1] != UNREVEALED:
-            return True
-        if not leftmostCol and self.board[row, col - 1] != UNREVEALED:
-            return True
+        return self.checkRowValid(row, col) or self.checkRowValid(row + 1, col) or self.checkRowValid(row + 2, col) or self.checkRowValid(row - 1, col) or self.checkRowValid(row - 2, col)
         
+    def checkRowValid(self, row, col):
+        if row < 0 or row >= HEIGHT:
+            return False
+
+        if (self.board[row, col] != UNREVEALED):
+            return True
+
+        if col > 1 and col < (WIDTH - 2):
+            return (self.board[row, col + 1] != UNREVEALED) or (self.board[row, col + 2] != UNREVEALED) or (self.board[row, col - 1] != UNREVEALED) or (self.board[row, col - 2] != UNREVEALED)
+        else:
+            if col == 0:
+                return (self.board[row, col + 1] != UNREVEALED) or (self.board[row, col + 2] != UNREVEALED)
+            if col == 1:
+                return (self.board[row, col + 1] != UNREVEALED) or (self.board[row, col + 2] != UNREVEALED) or (self.board[row, col - 1] != UNREVEALED)
+            if col == (WIDTH - 1):
+                return (self.board[row, col - 1] != UNREVEALED) or (self.board[row, col - 2] != UNREVEALED)
+            if col == (WIDTH - 2):
+                return (self.board[row, col + 1] != UNREVEALED) or (self.board[row, col - 1] != UNREVEALED) or (self.board[row, col - 2] != UNREVEALED)
+
         return False
+    
+    # def isAdjacent(self, position):
+    #     row, col = divmod(position, WIDTH)
+
+    #     if self.board[row, col] != UNREVEALED:
+    #         return False
+        
+    #     bottomRow = (row + 1 == HEIGHT)
+    #     topRow = (row == 0)
+    #     rightmostCol = (col + 1 == WIDTH)
+    #     leftmostCol = (col == 0)
+
+    #     if not bottomRow and self.board[row + 1, col] != UNREVEALED:
+    #         return True
+    #     if not topRow and self.board[row - 1, col] != UNREVEALED:
+    #         return True
+    #     if not rightmostCol and self.board[row, col + 1] != UNREVEALED:
+    #         return True
+    #     if not leftmostCol and self.board[row, col - 1] != UNREVEALED:
+    #         return True
+        
+    #     return False
 
 # Minesweeper Deep Q-Learning
 class MinesweeperDQLAgent():
@@ -322,11 +358,11 @@ class MinesweeperDQLAgent():
         # 100% probability to do a random action
         epsilon = 0
 
-        policy_dqn = DQN(input_shape=12, out_actions=1)
-        target_dqn = DQN(input_shape=12, out_actions=1)
+        policy_dqn = DQN(input_shape=10, out_actions=1)
+        target_dqn = DQN(input_shape=10, out_actions=1)
 
         if continueTraining:
-            policy_dqn.load_state_dict(torch.load("minesweeper_dql_cnn.pt"))
+            policy_dqn.load_state_dict(torch.load("minesweeper_dql_cnn_178808.pt"))
         # Copy policy network to target network
         target_dqn.load_state_dict(policy_dqn.state_dict())
 
@@ -336,6 +372,7 @@ class MinesweeperDQLAgent():
         total_steps = 0
         steps = 0
         score_history = []
+        policyTrained = 0
 
         memoryBuffer = MemoryBuffer()
 
@@ -349,42 +386,54 @@ class MinesweeperDQLAgent():
             while(not gameDone):
                 actions = []
                 for pos in self.ACTIONS:
-                    if env.isAdjacent(pos):
+                    if env.isValid(pos):
                         actions.append(pos)
                     
                 # select random action based on epsilon value
                 if random.random() < epsilon:
                     action = random.sample(actions, 1)[0]
                     state = env.state_to_tensor(action)
-                    if random.random() < 0.5:
-                        reward, gameDone, score = env.flag(action)
-                    else:
-                        reward, gameDone, score = env.step(action)
+                    # if random.random() < 0.5:
+                    #     reward, gameDone, score = env.flag(action)
+                    # else:
+                    reward, gameDone, score = env.step(action)
                 else:
                     # select best action
                     with torch.no_grad():
-                        minimum = 1000
-                        maximum = -1000
+                        maximum = -1000000
 
                         for a in actions:
                             curr_state = env.state_to_tensor(a)
                             temp = policy_dqn(curr_state)
-
-                            if temp > maximum:
-                                max_state = curr_state
-                                max_action = a
-                                maximum = temp
-                            if temp < minimum:
-                                min_state = curr_state
-                                min_action = a
-                                minimum = temp
                             
-                        if (1 - maximum) > minimum:
-                            state = min_state
-                            reward, gameDone, score = env.flag(min_action)
-                        else:
-                            state = max_state
-                            reward, gameDone, score = env.step(max_action)
+                            if temp > maximum:
+                                maximum = temp
+                                action = a
+                                state = curr_state
+
+                        reward, gameDone, score = env.step(action)
+                        # minimum = 1000
+                        # maximum = -1000
+
+                        # for a in actions:
+                        #     curr_state = env.state_to_tensor(a)
+                        #     temp = policy_dqn(curr_state)
+
+                        #     if temp > maximum:
+                        #         max_state = curr_state
+                        #         max_action = a
+                        #         maximum = temp
+                        #     if temp < minimum:
+                        #         min_state = curr_state
+                        #         min_action = a
+                        #         minimum = temp
+                            
+                        # if (1 - maximum) > minimum:
+                        #     state = min_state
+                        #     reward, gameDone, score = env.flag(min_action)
+                        # else:
+                        #     state = max_state
+                        #     reward, gameDone, score = env.step(max_action)
 
                 # row, col = divmod(action, WIDTH)
                 # print(f"Episode: {i}, Row: {row}, Column: {col}, Reward: {reward}, Score: {score}, Done: {gameDone}")
@@ -396,7 +445,7 @@ class MinesweeperDQLAgent():
                 steps += 1
                 total_steps += 1
 
-            if (i + 1) % 100 == 0:
+            if (i + 1) % 1000 == 0:
                 print(f"Episode: {i + 1}, Total steps: {total_steps}")
                 # if(i + 1) % 1000 == 0:
                 #     torch.save(policy_dqn.state_dict(), "minesweeper_dql_cnn.pt")
@@ -406,18 +455,21 @@ class MinesweeperDQLAgent():
 
             score_history.append(score)
 
-            if len(memoryBuffer) > MEMORY_LENGTH/2:
+            if steps > 3000:
                 mini_batch = memoryBuffer.sample()
                 self.optimize(mini_batch, policy_dqn, target_dqn)
+                steps = 0
+                policyTrained += 1
 
                 # Decay epsilon
-                epsilon = max(epsilon - 1/episodes, 0)
+                epsilon = max(epsilon*EPSILON_DECAY, 0)
                 epsilon_history.append(epsilon)
 
                 # Copy policy network to target network after a certain number of steps
-                if steps > SYNC_RATE:
+                if policyTrained == SYNC_RATE:
                     target_dqn.load_state_dict(policy_dqn.state_dict())
-                    steps = 0
+                    torch.save(policy_dqn.state_dict(), f"minesweeper_dql_cnn_{i}.pt")
+                    policyTrained = 0
 
         torch.save(policy_dqn.state_dict(), "minesweeper_dql_cnn.pt")
 
@@ -476,13 +528,14 @@ class MinesweeperDQLAgent():
         self.optimizer.step()
 
     # Run the Minesweeper environment with the learned policy
-    def test(self, episodes, render=True):
+    def test(self, episodes):
+        RENDER = True
         pygame.display.set_caption('Testing')
         env = MinesweeperEnvironment()
 
         # Load learned policy
-        policy_dqn = DQN(input_shape=12, out_actions=1)
-        policy_dqn.load_state_dict(torch.load("minesweeper_dql_cnn_80000_no_epsilon.pt"))
+        policy_dqn = DQN(input_shape=10, out_actions=1)
+        policy_dqn.load_state_dict(torch.load("./trained_networks/" + TEST_NETWORK_NAME))
         policy_dqn.eval()    # switch model to evaluation mode
 
         for i in range(episodes):
@@ -498,37 +551,27 @@ class MinesweeperDQLAgent():
             while(not gameDone):
                 actions = []
                 for pos in self.ACTIONS:
-                    if env.isAdjacent(pos):
+                    if env.isValid(pos):
                         actions.append(pos)
                 # select best action
                 with torch.no_grad():
-                    minimum = 1000
-                    maximum = -1000
+                    maximum = -1000000
 
                     for a in actions:
                         curr_state = env.state_to_tensor(a)
                         temp = policy_dqn(curr_state)
-
-                        if temp > maximum:
-                            max_state = curr_state
-                            max_action = a
-                            maximum = temp
-                        if temp < minimum:
-                            min_state = curr_state
-                            min_action = a
-                            minimum = temp
                         
-                    if (1 - maximum) > minimum:
-                        reward, gameDone, score = env.flag(min_action)
-                        row, col = divmod(min_action, WIDTH)
-                    else:
-                        reward, gameDone, score = env.step(max_action)
-                        row, col = divmod(max_action, WIDTH)
+                        if temp > maximum:
+                            maximum = temp
+                            action = a
+                            state = curr_state
+                    row, col = divmod(action, WIDTH)
+                    reward, gameDone, score = env.step(action)
 
                 print(f"Episode: {i}, Row: {row}, Column: {col}, Score: {score}, Done: {gameDone}")
                 time.sleep(1)
 
 if __name__ == "__main__":
     minesweeper = MinesweeperDQLAgent()
-    minesweeper.train(20000)
-    # minesweeper.test(10)
+    # minesweeper.train(1000000, 178808)
+    minesweeper.test(10)

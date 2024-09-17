@@ -2,7 +2,7 @@
  - [Summary](#item-one)
  - [Try it yourself](#item-two)
  - [Performance Tuning Attempts](#item-three)
- - [Demo](#item-four)
+ <!-- - [Demo](#item-four) -->
 
 <a id="item-one"></a>
 # Summary
@@ -17,7 +17,7 @@ Python version 3.12.3 (Other versions may work)
 ```
 pip install -r /path/to/requirements.txt
 ```
-3. Select one of the pretrained models in the trained_networks folder and set ```TEST_NETWORK_PATH``` in minesweeper.py to the path of the desired network you want to test
+3. Select one of the pretrained models in the trained_networks folder and set ```TEST_NETWORK_NAME``` in minesweeper.py to the name of the pt file you want to test
 4. Change code at bottom to(change 10 to amount of games you want the agent to play):
 ```
 if __name__ == "__main__":
@@ -53,6 +53,6 @@ if __name__ == "__main__":
 
 * Board size and number of mines
 
-<a id="item-four"></a>
+<!-- <a id="item-four"></a>
 # Demo
-Incoming...
+Incoming... -->
